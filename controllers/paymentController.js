@@ -1,106 +1,121 @@
-// controllers/paymentController.js
+require('dotenv').config();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const Payment = require('../models/payment');
-const axios = require('axios'); // For API calls to other services
 
-// Initiate a payment
 const createCheckoutSession = async (req, res) => {
-  const { product_ids } = req.body; // Product IDs from frontend
-  const customer_id = req.user.id; // From auth middleware
-
   try {
-    // Fetch product details from Product Service
-    const productsResponse = await axios.post('http://product-service/api/products/batch', { product_ids });
-    const products = productsResponse.data;
+    const { items, totalAmount, userId } = req.body; // Removed email from req.body
 
-    // Calculate total amount
-    const total_amount = products.reduce((sum, product) => sum + product.price, 0);
+    // Input validation
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: 'No items provided' });
+    }
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
+    }
+    if (!totalAmount || isNaN(totalAmount)) {
+      return res.status(400).json({ message: 'Invalid total amount' });
+    }
 
-    // Create Stripe Checkout Session
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: products.map(product => ({
+    console.log('Order items received:', items);
+    console.log('Total amount:', totalAmount);
+    console.log('User ID:', userId);
+
+    // Validate and map line items
+    const lineItems = items.map(item => {
+      if (!item.name || typeof item.price !== 'number' || typeof item.quantity !== 'number') {
+        throw new Error('Invalid item data: name, price, and quantity are required');
+      }
+      if (item.price <= 0 || item.quantity <= 0) {
+        throw new Error('Price and quantity must be positive');
+      }
+      return {
         price_data: {
           currency: 'inr',
-          product_data: { name: product.name },
-          unit_amount: Math.round(product.price * 100), // Convert to cents
+          product_data: { name: item.name },
+          unit_amount: Math.round(item.price * 100), // Convert to paise
         },
-        quantity: 1,
-      })),
+        quantity: Math.floor(item.quantity), // Ensure integer quantity
+      };
+    });
+
+    // Create the Checkout Session without pre-filling email
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: lineItems,
       mode: 'payment',
-      success_url: `${req.protocol}://${req.get('host')}/api/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.protocol}://${req.get('host')}/api/payment/failure?session_id={CHECKOUT_SESSION_ID}`,
-      metadata: { product_ids: product_ids.join(',') }, // Store for later use
-    });
-
-    // Record initial payment attempt
-    await Payment.create({
-      customer_id,
-      amount: total_amount,
-      payment_method: 'stripe',
-      payment_status: 'pending',
-    });
-
-    res.json({ id: session.id });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// Handle successful payment
-const handlePaymentSuccess = async (req, res) => {
-  const { session_id } = req.query;
-
-  try {
-    const session = await stripe.checkout.sessions.retrieve(session_id);
-    if (session.payment_status === 'paid') {
-      // Create order via Order Service
-      const orderResponse = await axios.post('http://order-service/api/orders/create', {
-        customer_id: req.user.id,
-        total_amount: session.amount_total / 100,
-        product_ids: session.metadata.product_ids.split(','),
-      });
-
-      const order_id = orderResponse.data.order_id;
-
-      // Update payment record
-      await Payment.update(
-        {
-          order_id,
-          transaction_id: session.payment_intent,
-          payment_status: 'success',
-        },
-        { where: { customer_id: req.user.id, payment_status: 'pending' } }
-      );
-
-      res.json({ message: 'Payment successful', order_id });
-    } else {
-      res.status(400).json({ message: 'Payment not completed' });
-    }
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// Handle failed payment
-const handlePaymentFailure = async (req, res) => {
-  const { session_id } = req.query;
-
-  try {
-    const session = await stripe.checkout.sessions.retrieve(session_id);
-
-    // Update payment record
-    await Payment.update(
-      {
-        transaction_id: session.payment_intent || null,
-        payment_status: 'failed',
+      billing_address_collection: 'required', // Mandatory for Indian export compliance, email will be collected here
+      shipping_address_collection: {
+        allowed_countries: ['US', 'CA', 'GB', 'AU', 'IN'], // Adjust for your target countries
       },
-      { where: { customer_id: req.user.id, payment_status: 'pending' } }
+      success_url: `${req.protocol}://${req.get('host')}/api/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${req.protocol}://${req.get('host')}/api/payment/failure`,
+      metadata: { userId: userId.toString() },
+    });
+
+    // Save payment details to database
+    try {
+      await Payment.create({
+        customer_id: userId,
+        amount: totalAmount,
+        payment_method: 'card',
+        transaction_id: session.id,
+        payment_status: 'pending',
+        // Note: stripe_customer_id is not available since we didn’t create a customer explicitly
+      });
+    } catch (dbError) {
+      console.error('Database error:', dbError.message);
+      throw new Error('Failed to save payment record');
+    }
+
+    res.status(200).json({ id: session.id });
+  } catch (error) {
+    console.error('Error creating checkout session:', error.message);
+    res.status(500).json({ message: 'Failed to create checkout session', error: error.message });
+  }
+};
+
+const handlePaymentSuccess = async (req, res) => {
+  try {
+    const sessionId = req.query.session_id;
+    if (!sessionId) {
+      return res.status(400).json({ message: 'Session ID is required' });
+    }
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const userId = session.metadata.userId;
+
+    await Payment.update(
+      { payment_status: 'success', updated_at: new Date() },
+      { where: { transaction_id: sessionId, customer_id: userId } }
     );
 
-    res.json({ message: 'Payment failed' });
+    res.status(200).json({ message: 'Payment successful' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Payment success error:', error.message);
+    res.status(500).json({ message: 'Error processing payment success', error: error.message });
+  }
+};
+
+const handlePaymentFailure = async (req, res) => {
+  try {
+    const sessionId = req.query.session_id;
+    if (!sessionId) {
+      return res.status(400).json({ message: 'Session ID is required' });
+    }
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const userId = session.metadata.userId;
+
+    await Payment.update(
+      { payment_status: 'failed', updated_at: new Date() },
+      { where: { transaction_id: sessionId, customer_id: userId } }
+    );
+
+    res.status(400).json({ message: 'Payment failed' });
+  } catch (error) {
+    console.error('Payment failure error:', error.message);
+    res.status(500).json({ message: 'Error processing payment failure', error: error.message });
   }
 };
 

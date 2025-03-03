@@ -1,4 +1,3 @@
-// models/payment.js
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 
@@ -10,38 +9,32 @@ const Payment = sequelize.define('Payment', {
   },
   order_id: {
     type: DataTypes.INTEGER,
-    allowNull: true, // Null for failed payments before an order is created
+    allowNull: true, // Matches nullable column
   },
   customer_id: {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
   amount: {
-    type: DataTypes.FLOAT,
+    type: DataTypes.DOUBLE,
     allowNull: false,
   },
   payment_method: {
-    type: DataTypes.STRING,
+    type: DataTypes.STRING(50),
     allowNull: false,
   },
   transaction_id: {
-    type: DataTypes.STRING,
+    type: DataTypes.STRING(255),
     allowNull: true,
   },
   payment_status: {
-    type: DataTypes.STRING,
-    allowNull: false, // e.g., 'pending', 'success', 'failed'
-  },
-  created_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW,
-  },
-  updated_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW,
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    defaultValue: 'pending',
   },
 }, {
   tableName: 'payments',
+  timestamps: false,
 });
 
 module.exports = Payment;

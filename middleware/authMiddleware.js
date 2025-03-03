@@ -1,23 +1,38 @@
-// middleware/authMiddleware.js
+require('dotenv').config(); // Ensure env vars are loaded
 const jwt = require('jsonwebtoken');
-require('dotenv').config(); // Load environment variables
 
 const authMiddleware = (req, res, next) => {
-  // Extract token from Authorization header (e.g., "Bearer <token>")
-  const token = req.header('Authorization')?.replace('Bearer ', '');
-
-  // Check if token exists
-  if (!token) {
-    return res.status(401).json({ message: 'No token provided' });
-  }
-
   try {
-    // Verify token using the secret from .env
+    const authHeader = req.header('Authorization');
+
+    // Check if header exists and starts with "Bearer "
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ message: 'Token is empty or malformed' });
+    }
+
+    // Log for debugging
+    console.log('Received Token:', token);
+    console.log('JWT_SECRET:', process.env.JWT_SECRET || 'SECRET_NOT_SET');
+
+    // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // Attach decoded user data (e.g., userId) to request
-    next(); // Proceed to the next middleware or route handler
+    console.log('Decoded Token:', decoded);
+
+    req.user = decoded; // Attach decoded payload (e.g., userId) to request
+    next();
   } catch (error) {
-    res.status(401).json({ message: 'Invalid token' });
+    console.error('JWT Verification Error:', error.message);
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Token has expired' });
+    } else if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: 'Invalid token' });
+    }
+    return res.status(401).json({ message: 'Authentication failed' });
   }
 };
 
