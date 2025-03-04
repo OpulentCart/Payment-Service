@@ -2,9 +2,13 @@ require('dotenv').config();
 const express = require('express');
 const paymentRoutes = require('./routes/paymentRoutes');
 const sequelize = require('./config/database');
+const { connectRabbitMQ } = require("./config/rabbitmqConfig");
 const cors = require('cors');
 
 const app = express();
+
+// Connect to RabbitMQ
+connectRabbitMQ();
 
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
