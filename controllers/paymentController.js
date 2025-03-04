@@ -1,6 +1,7 @@
 require('dotenv').config();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const Payment = require('../models/payment');
+const { getChannel } = require("../config/rabbitmqConfig");
 
 const createCheckoutSession = async (req, res) => {
   try {
@@ -61,8 +62,24 @@ const createCheckoutSession = async (req, res) => {
         payment_method: 'card',
         transaction_id: session.id,
         payment_status: 'pending',
-        // Note: stripe_customer_id is not available since we didn’t create a customer explicitly
+        // Note: stripe_customer_id is not available since we didn’t create a customer explicitl
       });
+
+      // Send orders to RabbitMQ
+      const channel = getChannel();
+      if (channel) {
+          const order = {
+            user_id: userId,
+            items,
+            totalAmount
+          };
+          channel.sendToQueue("orders", Buffer.from(JSON.stringify(order)), { persistent: true });
+          console.log("📨 Sent order to RabbitMQ:", order);
+      } else {
+          console.error("❌ RabbitMQ channel not available");
+      }
+
+
     } catch (dbError) {
       console.error('Database error:', dbError.message);
       throw new Error('Failed to save payment record');
@@ -89,6 +106,8 @@ const handlePaymentSuccess = async (req, res) => {
       { payment_status: 'success', updated_at: new Date() },
       { where: { transaction_id: sessionId, customer_id: userId } }
     );
+
+    
 
     res.status(200).json({ message: 'Payment successful' });
   } catch (error) {
