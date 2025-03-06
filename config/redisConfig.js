@@ -1,7 +1,11 @@
 const redis = require('redis');
 
 const redisClient = redis.createClient({
-    url: 'redis://127.0.0.1:6379'
+    url: process.env.UPSTASH_REDIS_URL,
+    socket: {
+        tls: true, // Ensure TLS (Upstash uses secure connections)
+        rejectUnauthorized: false, // Accept self-signed certificates
+    },
 });
 
 

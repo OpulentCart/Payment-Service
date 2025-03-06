@@ -2,7 +2,7 @@ require('dotenv').config();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const Payment = require('../models/payment');
 const { getChannel } = require("../config/rabbitmqConfig");
-const redisClient = require('../redisConfig');
+const redisClient = require('../config/redisConfig');
 
 const createCheckoutSession = async (req, res) => {
   try {
@@ -93,7 +93,7 @@ const handlePaymentSuccess = async (req, res) => {
     }
 
     const session = await stripe.checkout.sessions.retrieve(sessionId);
-    
+
     // retrieving userId and orderKey from the metadata of the Stripe.
     const userId = parseInt(session.metadata.userId, 10); 
     const orderKey = session.metadata.orderKey;

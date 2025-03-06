@@ -5,7 +5,7 @@ const path = require('path');
 const paymentRoutes = require('./routes/paymentRoutes');
 const sequelize = require('./config/database');
 const { connectRabbitMQ } = require('./config/rabbitmqConfig');
-const redisClient = require('./redisConfig'); 
+const redisClient = require('./config/redisConfig'); 
 const app = express();
 
 connectRabbitMQ();
