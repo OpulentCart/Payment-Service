@@ -21,6 +21,6 @@ const connectDB = async () => {
       console.error("❌ Database connection failed:", error);
     }
   };
-module.exports = sequelize;
+module.exports = sequelize, connectDB;
 
 

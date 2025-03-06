@@ -7,10 +7,6 @@ const Payment = sequelize.define('Payment', {
     primaryKey: true,
     autoIncrement: true,
   },
-  order_id: {
-    type: DataTypes.INTEGER,
-    allowNull: true, // Matches nullable column
-  },
   customer_id: {
     type: DataTypes.INTEGER,
     allowNull: false,
